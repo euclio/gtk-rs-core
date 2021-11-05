@@ -2,9 +2,9 @@
 
 //! `IMPL` Object wrapper implementation and `Object` binding.
 
-use crate::translate::*;
 use crate::types::StaticType;
 use crate::{quark::Quark, subclass::signal::SignalQuery};
+use crate::{translate::*, value::FromValue};
 use std::cmp;
 use std::fmt;
 use std::hash;
@@ -1272,34 +1272,67 @@ pub trait ObjectExt: ObjectType {
     /// This fails if the property does not exist, if the type of the property is different than
     /// the provided value, or if the property is not writable.
     #[doc(alias = "g_object_set_property")]
-    fn set_property<V: ToValue>(&self, property_name: &str, value: V) -> Result<(), BoolError>;
+    fn try_set_property<V: ToValue>(&self, property_name: &str, value: V) -> Result<(), BoolError>;
+
+    /// Similar to `try_set_property` but panics instead of failing.
+    fn set_property<V: ToValue>(&self, property_name: &str, value: V);
 
     /// Sets the property `property_name` of the object to value `value`.
     ///
     /// This fails if the property does not exist, the type of the property is different than the
     /// provided value, or if the property is not writable.
-    fn set_property_from_value(&self, property_name: &str, value: &Value) -> Result<(), BoolError>;
+    fn try_set_property_from_value(
+        &self,
+        property_name: &str,
+        value: &Value,
+    ) -> Result<(), BoolError>;
+
+    /// Similar to `try_set_property_from_value` but panics instead of failing.
+    fn set_property_from_value(&self, property_name: &str, value: &Value);
 
     /// Sets multiple properties of the object at once.
     ///
     /// This does not set any properties if one or more properties don't exist, values of the wrong
     /// type are provided, or if any of the properties is not writable.
     #[doc(alias = "g_object_set")]
-    fn set_properties(&self, property_values: &[(&str, &dyn ToValue)]) -> Result<(), BoolError>;
+    fn try_set_properties(&self, property_values: &[(&str, &dyn ToValue)])
+        -> Result<(), BoolError>;
+
+    /// Similar to `try_set_properties` but panics instead of failing.
+    fn set_properties(&self, property_values: &[(&str, &dyn ToValue)]);
 
     /// Sets multiple properties of the object at once.
     ///
     /// This does not set any properties if one or more properties don't exist, values of the wrong
     /// type are provided, or if any of the properties is not writable.
-    fn set_properties_from_value(&self, property_values: &[(&str, Value)])
-        -> Result<(), BoolError>;
+    fn try_set_properties_from_value(
+        &self,
+        property_values: &[(&str, Value)],
+    ) -> Result<(), BoolError>;
+
+    /// Similar to `try_set_properties_from_value` but panics instead of failing.
+    fn set_properties_from_value(&self, property_values: &[(&str, Value)]);
+
+    /// Gets the property `property_name` of the object and cast it to the type V.
+    ///
+    /// Fails if the property doesn't exist or is not readable or of a different type than V.
+    fn try_property<V: for<'b> FromValue<'b> + 'static>(
+        &self,
+        property_name: &str,
+    ) -> Result<V, BoolError>;
+
+    /// Similar to `try_property` but panics instead of failing.
+    fn property<V: for<'b> FromValue<'b> + 'static>(&self, property_name: &str) -> V;
 
     /// Gets the property `property_name` of the object.
     ///
     /// This fails if the property does not exist or is not writable.
     #[doc(alias = "get_property")]
     #[doc(alias = "g_object_get_property")]
-    fn property(&self, property_name: &str) -> Result<Value, BoolError>;
+    fn try_property_value(&self, property_name: &str) -> Result<Value, BoolError>;
+
+    /// Similar to `try_property_value` but panics instead of failing.
+    fn property_value(&self, property_name: &str) -> Value;
 
     /// Check if the object has a property `property_name` of the given `type_`.
     ///
@@ -1402,12 +1435,17 @@ pub trait ObjectExt: ObjectType {
     /// handler of the signal is emitted, otherwise before.
     ///
     /// This fails if the signal does not exist.
-    fn connect<F>(
+    fn try_connect<F>(
         &self,
         signal_name: &str,
         after: bool,
         callback: F,
     ) -> Result<SignalHandlerId, BoolError>
+    where
+        F: Fn(&[Value]) -> Option<Value> + Send + Sync + 'static;
+
+    /// Similar to `try_connect` but panics instead of failing.
+    fn connect<F>(&self, signal_name: &str, after: bool, callback: F) -> SignalHandlerId
     where
         F: Fn(&[Value]) -> Option<Value> + Send + Sync + 'static;
 
@@ -1418,14 +1456,25 @@ pub trait ObjectExt: ObjectType {
     ///
     /// This fails if the signal does not exist.
     ///
-    /// Same as `connect` but takes a `SignalId` instead of a signal name.
-    fn connect_id<F>(
+    /// Same as `try_connect` but takes a `SignalId` instead of a signal name.
+    fn try_connect_id<F>(
         &self,
         signal_id: SignalId,
         details: Option<Quark>,
         after: bool,
         callback: F,
     ) -> Result<SignalHandlerId, BoolError>
+    where
+        F: Fn(&[Value]) -> Option<Value> + Send + Sync + 'static;
+
+    /// Similar to `try_connect_id` but panics instead of failing
+    fn connect_id<F>(
+        &self,
+        signal_id: SignalId,
+        details: Option<Quark>,
+        after: bool,
+        callback: F,
+    ) -> SignalHandlerId
     where
         F: Fn(&[Value]) -> Option<Value> + Send + Sync + 'static;
 
@@ -1436,14 +1485,19 @@ pub trait ObjectExt: ObjectType {
     ///
     /// This fails if the signal does not exist.
     ///
-    /// Same as `connect` but takes a non-`Send+Sync` closure. If the signal is emitted from a
+    /// Same as `try_connect` but takes a non-`Send+Sync` closure. If the signal is emitted from a
     /// different thread than it was connected to then the signal emission will panic.
-    fn connect_local<F>(
+    fn try_connect_local<F>(
         &self,
         signal_name: &str,
         after: bool,
         callback: F,
     ) -> Result<SignalHandlerId, BoolError>
+    where
+        F: Fn(&[Value]) -> Option<Value> + 'static;
+
+    /// Similar to `try_connect_local` but panics instead of failing.
+    fn connect_local<F>(&self, signal_name: &str, after: bool, callback: F) -> SignalHandlerId
     where
         F: Fn(&[Value]) -> Option<Value> + 'static;
 
@@ -1454,15 +1508,26 @@ pub trait ObjectExt: ObjectType {
     ///
     /// This fails if the signal does not exist.
     ///
-    /// Same as `connect_id` but takes a non-`Send+Sync` closure. If the signal is emitted from a
+    /// Same as `try_connect_id` but takes a non-`Send+Sync` closure. If the signal is emitted from a
     /// different thread than it was connected to then the signal emission will panic.
-    fn connect_local_id<F>(
+    fn try_connect_local_id<F>(
         &self,
         signal_id: SignalId,
         details: Option<Quark>,
         after: bool,
         callback: F,
     ) -> Result<SignalHandlerId, BoolError>
+    where
+        F: Fn(&[Value]) -> Option<Value> + 'static;
+
+    /// Similar to `try_connect_local_id` but panics instead of failing.
+    fn connect_local_id<F>(
+        &self,
+        signal_id: SignalId,
+        details: Option<Quark>,
+        after: bool,
+        callback: F,
+    ) -> SignalHandlerId
     where
         F: Fn(&[Value]) -> Option<Value> + 'static;
 
@@ -1480,12 +1545,22 @@ pub trait ObjectExt: ObjectType {
     ///
     /// The provided closure must be valid until the signal handler is disconnected, and it must
     /// be allowed to call the closure from the threads the signal is emitted from.
-    unsafe fn connect_unsafe<F>(
+    unsafe fn try_connect_unsafe<F>(
         &self,
         signal_name: &str,
         after: bool,
         callback: F,
     ) -> Result<SignalHandlerId, BoolError>
+    where
+        F: Fn(&[Value]) -> Option<Value>;
+
+    /// Similar to `try_connect_unsafe` but panics instead of failing.
+    unsafe fn connect_unsafe<F>(
+        &self,
+        signal_name: &str,
+        after: bool,
+        callback: F,
+    ) -> SignalHandlerId
     where
         F: Fn(&[Value]) -> Option<Value>;
 
@@ -1503,13 +1578,24 @@ pub trait ObjectExt: ObjectType {
     ///
     /// The provided closure must be valid until the signal handler is disconnected, and it must
     /// be allowed to call the closure from the threads the signal is emitted from.
-    unsafe fn connect_unsafe_id<F>(
+    unsafe fn try_connect_unsafe_id<F>(
         &self,
         signal_id: SignalId,
         details: Option<Quark>,
         after: bool,
         callback: F,
     ) -> Result<SignalHandlerId, BoolError>
+    where
+        F: Fn(&[Value]) -> Option<Value>;
+
+    /// Similar to `try_connect_unsafe_id` but panics instead of failing.
+    unsafe fn connect_unsafe_id<F>(
+        &self,
+        signal_id: SignalId,
+        details: Option<Quark>,
+        after: bool,
+        callback: F,
+    ) -> SignalHandlerId
     where
         F: Fn(&[Value]) -> Option<Value>;
 
@@ -1520,13 +1606,24 @@ pub trait ObjectExt: ObjectType {
     ///
     /// If the signal has a return value then this is returned here.
     #[doc(alias = "g_signal_emitv")]
-    fn emit(&self, signal_id: SignalId, args: &[&dyn ToValue]) -> Result<Option<Value>, BoolError>;
+    fn try_emit(
+        &self,
+        signal_id: SignalId,
+        args: &[&dyn ToValue],
+    ) -> Result<Option<Value>, BoolError>;
+
+    /// Similar to `try_emit` but panics instead of failing.
+    fn emit(&self, signal_id: SignalId, args: &[&dyn ToValue]) -> Option<Value>;
+
     /// Same as `emit` but takes `Value` for the arguments.
-    fn emit_with_values(
+    fn try_emit_with_values(
         &self,
         signal_id: SignalId,
         args: &[Value],
     ) -> Result<Option<Value>, BoolError>;
+
+    /// Similar to `try_emit_with_values` but panics instead of failing.
+    fn emit_with_values(&self, signal_id: SignalId, args: &[Value]) -> Option<Value>;
 
     /// Emit signal by its name.
     ///
@@ -1535,11 +1632,14 @@ pub trait ObjectExt: ObjectType {
     ///
     /// If the signal has a return value then this is returned here.
     #[doc(alias = "g_signal_emit_by_name")]
-    fn emit_by_name(
+    fn try_emit_by_name(
         &self,
         signal_name: &str,
         args: &[&dyn ToValue],
     ) -> Result<Option<Value>, BoolError>;
+
+    /// Similar to `try_emit_by_name` but panics instead of failing.
+    fn emit_by_name(&self, signal_name: &str, args: &[&dyn ToValue]) -> Option<Value>;
 
     /// Emit signal by its name.
     ///
@@ -1547,11 +1647,14 @@ pub trait ObjectExt: ObjectType {
     /// arguments of the wrong types were provided.
     ///
     /// If the signal has a return value then this is returned here.
-    fn emit_by_name_with_values(
+    fn try_emit_by_name_with_values(
         &self,
         signal_name: &str,
         args: &[Value],
     ) -> Result<Option<Value>, BoolError>;
+
+    /// Similar to `try_emit_by_name_with_values` but panics instead of failing.
+    fn emit_by_name_with_values(&self, signal_name: &str, args: &[Value]) -> Option<Value>;
 
     /// Emit signal by signal id with details.
     ///
@@ -1559,25 +1662,41 @@ pub trait ObjectExt: ObjectType {
     /// were provided.
     ///
     /// If the signal has a return value then this is returned here.
-    fn emit_with_details(
+    fn try_emit_with_details(
         &self,
         signal_id: SignalId,
         details: Quark,
         args: &[&dyn ToValue],
     ) -> Result<Option<Value>, BoolError>;
 
+    /// Similar to `try_emit_with_details` but panics instead of failing.
+    fn emit_with_details(
+        &self,
+        signal_id: SignalId,
+        details: Quark,
+        args: &[&dyn ToValue],
+    ) -> Option<Value>;
+
     /// Emit signal by signal id with details.
     ///
     /// This fails if the wrong number of arguments is provided, or arguments of the wrong types
     /// were provided.
     ///
     /// If the signal has a return value then this is returned here.
-    fn emit_with_details_and_values(
+    fn try_emit_with_details_and_values(
         &self,
         signal_id: SignalId,
         details: Quark,
         args: &[Value],
     ) -> Result<Option<Value>, BoolError>;
+
+    /// Similar to `try_emit_with_details_and_values` but panics instead of failing.
+    fn emit_with_details_and_values(
+        &self,
+        signal_id: SignalId,
+        details: Quark,
+        args: &[Value],
+    ) -> Option<Value>;
 
     /// Disconnect a previously connected signal handler.
     #[doc(alias = "g_signal_handler_disconnect")]
@@ -1700,7 +1819,7 @@ impl<T: ObjectType> ObjectExt for T {
         Interface::from_class(self.object_class())
     }
 
-    fn set_property<V: ToValue>(&self, property_name: &str, value: V) -> Result<(), BoolError> {
+    fn try_set_property<V: ToValue>(&self, property_name: &str, value: V) -> Result<(), BoolError> {
         let pspec = match self.find_property(property_name) {
             Some(pspec) => pspec,
             None => {
@@ -1725,7 +1844,15 @@ impl<T: ObjectType> ObjectExt for T {
         Ok(())
     }
 
-    fn set_property_from_value(&self, property_name: &str, value: &Value) -> Result<(), BoolError> {
+    fn set_property<V: ToValue>(&self, property_name: &str, value: V) {
+        self.try_set_property(property_name, value).unwrap()
+    }
+
+    fn try_set_property_from_value(
+        &self,
+        property_name: &str,
+        value: &Value,
+    ) -> Result<(), BoolError> {
         let pspec = match self.find_property(property_name) {
             Some(pspec) => pspec,
             None => {
@@ -1750,7 +1877,15 @@ impl<T: ObjectType> ObjectExt for T {
         Ok(())
     }
 
-    fn set_properties(&self, property_values: &[(&str, &dyn ToValue)]) -> Result<(), BoolError> {
+    fn set_property_from_value(&self, property_name: &str, value: &Value) {
+        self.try_set_property_from_value(property_name, value)
+            .unwrap()
+    }
+
+    fn try_set_properties(
+        &self,
+        property_values: &[(&str, &dyn ToValue)],
+    ) -> Result<(), BoolError> {
         use std::ffi::CString;
 
         let pspecs = self.list_properties();
@@ -1781,7 +1916,11 @@ impl<T: ObjectType> ObjectExt for T {
         Ok(())
     }
 
-    fn set_properties_from_value(
+    fn set_properties(&self, property_values: &[(&str, &dyn ToValue)]) {
+        self.try_set_properties(property_values).unwrap()
+    }
+
+    fn try_set_properties_from_value(
         &self,
         property_values: &[(&str, Value)],
     ) -> Result<(), BoolError> {
@@ -1815,7 +1954,26 @@ impl<T: ObjectType> ObjectExt for T {
         Ok(())
     }
 
-    fn property(&self, property_name: &str) -> Result<Value, BoolError> {
+    fn set_properties_from_value(&self, property_values: &[(&str, Value)]) {
+        self.try_set_properties_from_value(property_values).unwrap()
+    }
+
+    fn try_property<V: for<'b> FromValue<'b> + 'static>(
+        &self,
+        property_name: &str,
+    ) -> Result<V, BoolError> {
+        let prop = self.try_property_value(property_name)?;
+        let v = prop.get_owned::<V>().map_err(|e| {
+            crate::bool_error!("Failed to get cast value to a different type {}", e)
+        })?;
+        Ok(v)
+    }
+
+    fn property<V: for<'b> FromValue<'b> + 'static>(&self, property_name: &str) -> V {
+        self.try_property(property_name).unwrap()
+    }
+
+    fn try_property_value(&self, property_name: &str) -> Result<Value, BoolError> {
         let pspec = match self.find_property(property_name) {
             Some(pspec) => pspec,
             None => {
@@ -1852,6 +2010,10 @@ impl<T: ObjectType> ObjectExt for T {
                 )
             })
         }
+    }
+
+    fn property_value(&self, property_name: &str) -> Value {
+        self.try_property_value(property_name).unwrap()
     }
 
     fn has_property(&self, property_name: &str, type_: Option<Type>) -> bool {
@@ -1960,7 +2122,7 @@ impl<T: ObjectType> ObjectExt for T {
         }
     }
 
-    fn connect<F>(
+    fn try_connect<F>(
         &self,
         signal_name: &str,
         after: bool,
@@ -1969,10 +2131,17 @@ impl<T: ObjectType> ObjectExt for T {
     where
         F: Fn(&[Value]) -> Option<Value> + Send + Sync + 'static,
     {
-        unsafe { self.connect_unsafe(signal_name, after, callback) }
+        unsafe { self.try_connect_unsafe(signal_name, after, callback) }
     }
 
-    fn connect_id<F>(
+    fn connect<F>(&self, signal_name: &str, after: bool, callback: F) -> SignalHandlerId
+    where
+        F: Fn(&[Value]) -> Option<Value> + Send + Sync + 'static,
+    {
+        self.try_connect(signal_name, after, callback).unwrap()
+    }
+
+    fn try_connect_id<F>(
         &self,
         signal_id: SignalId,
         details: Option<Quark>,
@@ -1982,10 +2151,24 @@ impl<T: ObjectType> ObjectExt for T {
     where
         F: Fn(&[Value]) -> Option<Value> + Send + Sync + 'static,
     {
-        unsafe { self.connect_unsafe_id(signal_id, details, after, callback) }
+        unsafe { self.try_connect_unsafe_id(signal_id, details, after, callback) }
     }
 
-    fn connect_local<F>(
+    fn connect_id<F>(
+        &self,
+        signal_id: SignalId,
+        details: Option<Quark>,
+        after: bool,
+        callback: F,
+    ) -> SignalHandlerId
+    where
+        F: Fn(&[Value]) -> Option<Value> + Send + Sync + 'static,
+    {
+        self.try_connect_id(signal_id, details, after, callback)
+            .unwrap()
+    }
+
+    fn try_connect_local<F>(
         &self,
         signal_name: &str,
         after: bool,
@@ -1997,7 +2180,34 @@ impl<T: ObjectType> ObjectExt for T {
         let callback = crate::ThreadGuard::new(callback);
 
         unsafe {
-            self.connect_unsafe(signal_name, after, move |values| {
+            self.try_connect_unsafe(signal_name, after, move |values| {
+                (callback.get_ref())(values)
+            })
+        }
+    }
+
+    fn connect_local<F>(&self, signal_name: &str, after: bool, callback: F) -> SignalHandlerId
+    where
+        F: Fn(&[Value]) -> Option<Value> + 'static,
+    {
+        self.try_connect_local(signal_name, after, callback)
+            .unwrap()
+    }
+
+    fn try_connect_local_id<F>(
+        &self,
+        signal_id: SignalId,
+        details: Option<Quark>,
+        after: bool,
+        callback: F,
+    ) -> Result<SignalHandlerId, BoolError>
+    where
+        F: Fn(&[Value]) -> Option<Value> + 'static,
+    {
+        let callback = crate::ThreadGuard::new(callback);
+
+        unsafe {
+            self.try_connect_unsafe_id(signal_id, details, after, move |values| {
                 (callback.get_ref())(values)
             })
         }
@@ -2009,20 +2219,15 @@ impl<T: ObjectType> ObjectExt for T {
         details: Option<Quark>,
         after: bool,
         callback: F,
-    ) -> Result<SignalHandlerId, BoolError>
+    ) -> SignalHandlerId
     where
         F: Fn(&[Value]) -> Option<Value> + 'static,
     {
-        let callback = crate::ThreadGuard::new(callback);
-
-        unsafe {
-            self.connect_unsafe_id(signal_id, details, after, move |values| {
-                (callback.get_ref())(values)
-            })
-        }
+        self.try_connect_local_id(signal_id, details, after, callback)
+            .unwrap()
     }
 
-    unsafe fn connect_unsafe<F>(
+    unsafe fn try_connect_unsafe<F>(
         &self,
         signal_name: &str,
         after: bool,
@@ -2034,10 +2239,23 @@ impl<T: ObjectType> ObjectExt for T {
         let type_ = self.type_();
         let (signal_id, details) = SignalId::parse_name(signal_name, type_, true)
             .ok_or_else(|| bool_error!("Signal '{}' of type '{}' not found", signal_name, type_))?;
-        self.connect_unsafe_id(signal_id, Some(details), after, callback)
+        self.try_connect_unsafe_id(signal_id, Some(details), after, callback)
     }
 
-    unsafe fn connect_unsafe_id<F>(
+    unsafe fn connect_unsafe<F>(
+        &self,
+        signal_name: &str,
+        after: bool,
+        callback: F,
+    ) -> SignalHandlerId
+    where
+        F: Fn(&[Value]) -> Option<Value>,
+    {
+        self.try_connect_unsafe(signal_name, after, callback)
+            .unwrap()
+    }
+
+    unsafe fn try_connect_unsafe_id<F>(
         &self,
         signal_id: SignalId,
         details: Option<Quark>,
@@ -2140,7 +2358,25 @@ impl<T: ObjectType> ObjectExt for T {
         }
     }
 
-    fn emit(&self, signal_id: SignalId, args: &[&dyn ToValue]) -> Result<Option<Value>, BoolError> {
+    unsafe fn connect_unsafe_id<F>(
+        &self,
+        signal_id: SignalId,
+        details: Option<Quark>,
+        after: bool,
+        callback: F,
+    ) -> SignalHandlerId
+    where
+        F: Fn(&[Value]) -> Option<Value>,
+    {
+        self.try_connect_unsafe_id(signal_id, details, after, callback)
+            .unwrap()
+    }
+
+    fn try_emit(
+        &self,
+        signal_id: SignalId,
+        args: &[&dyn ToValue],
+    ) -> Result<Option<Value>, BoolError> {
         let signal_query = signal_id.query();
         unsafe {
             let type_ = self.type_();
@@ -2182,7 +2418,11 @@ impl<T: ObjectType> ObjectExt for T {
         }
     }
 
-    fn emit_with_values(
+    fn emit(&self, signal_id: SignalId, args: &[&dyn ToValue]) -> Option<Value> {
+        self.try_emit(signal_id, args).unwrap()
+    }
+
+    fn try_emit_with_values(
         &self,
         signal_id: SignalId,
         args: &[Value],
@@ -2226,7 +2466,11 @@ impl<T: ObjectType> ObjectExt for T {
         }
     }
 
-    fn emit_by_name(
+    fn emit_with_values(&self, signal_id: SignalId, args: &[Value]) -> Option<Value> {
+        self.try_emit_with_values(signal_id, args).unwrap()
+    }
+
+    fn try_emit_by_name(
         &self,
         signal_name: &str,
         args: &[&dyn ToValue],
@@ -2234,10 +2478,14 @@ impl<T: ObjectType> ObjectExt for T {
         let type_ = self.type_();
         let signal_id = SignalId::lookup(signal_name, type_)
             .ok_or_else(|| bool_error!("Signal '{}' of type '{}' not found", signal_name, type_))?;
-        self.emit(signal_id, args)
+        self.try_emit(signal_id, args)
     }
 
-    fn emit_by_name_with_values(
+    fn emit_by_name(&self, signal_name: &str, args: &[&dyn ToValue]) -> Option<Value> {
+        self.try_emit_by_name(signal_name, args).unwrap()
+    }
+
+    fn try_emit_by_name_with_values(
         &self,
         signal_name: &str,
         args: &[Value],
@@ -2245,10 +2493,15 @@ impl<T: ObjectType> ObjectExt for T {
         let type_ = self.type_();
         let signal_id = SignalId::lookup(signal_name, type_)
             .ok_or_else(|| bool_error!("Signal '{}' of type '{}' not found", signal_name, type_))?;
-        self.emit_with_values(signal_id, args)
+        self.try_emit_with_values(signal_id, args)
     }
 
-    fn emit_with_details(
+    fn emit_by_name_with_values(&self, signal_name: &str, args: &[Value]) -> Option<Value> {
+        self.try_emit_by_name_with_values(signal_name, args)
+            .unwrap()
+    }
+
+    fn try_emit_with_details(
         &self,
         signal_id: SignalId,
         details: Quark,
@@ -2297,7 +2550,17 @@ impl<T: ObjectType> ObjectExt for T {
         }
     }
 
-    fn emit_with_details_and_values(
+    fn emit_with_details(
+        &self,
+        signal_id: SignalId,
+        details: Quark,
+        args: &[&dyn ToValue],
+    ) -> Option<Value> {
+        self.try_emit_with_details(signal_id, details, args)
+            .unwrap()
+    }
+
+    fn try_emit_with_details_and_values(
         &self,
         signal_id: SignalId,
         details: Quark,
@@ -2341,6 +2604,16 @@ impl<T: ObjectType> ObjectExt for T {
 
             Ok(Some(return_value).filter(|r| r.type_().is_valid() && r.type_() != Type::UNIT))
         }
+    }
+
+    fn emit_with_details_and_values(
+        &self,
+        signal_id: SignalId,
+        details: Quark,
+        args: &[Value],
+    ) -> Option<Value> {
+        self.try_emit_with_details_and_values(signal_id, details, args)
+            .unwrap()
     }
 
     fn disconnect(&self, handler_id: SignalHandlerId) {
@@ -2903,7 +3176,7 @@ impl<'a> BindingBuilder<'a> {
     /// Establish the property binding.
     ///
     /// This fails if the provided properties do not exist.
-    pub fn build(self) -> Result<crate::Binding, crate::BoolError> {
+    pub fn try_build(self) -> Result<crate::Binding, crate::BoolError> {
         unsafe {
             Option::<_>::from_glib_none(gobject_ffi::g_object_bind_property_with_closures(
                 self.source.to_glib_none().0,
@@ -2916,6 +3189,11 @@ impl<'a> BindingBuilder<'a> {
             ))
             .ok_or_else(|| bool_error!("Failed to create property bindings"))
         }
+    }
+
+    /// Similar to `try_build` but panics instead of failing.
+    pub fn build(self) -> crate::Binding {
+        self.try_build().unwrap()
     }
 }
 
