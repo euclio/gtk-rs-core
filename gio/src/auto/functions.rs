@@ -178,8 +178,8 @@ pub fn content_type_get_symbolic_icon(type_: &str) -> Icon {
 }
 
 #[doc(alias = "g_content_type_guess")]
-pub fn content_type_guess(filename: Option<&str>, data: &[u8]) -> (glib::GString, bool) {
-    let data_size = data.len() as usize;
+pub fn content_type_guess(filename: Option<&str>, data: Option<&[u8]>) -> (glib::GString, bool) {
+    let data_size = data.map(|arr| arr.len()).unwrap_or(0) as usize;
     unsafe {
         let mut result_uncertain = mem::MaybeUninit::uninit();
         let ret = from_glib_full(ffi::g_content_type_guess(

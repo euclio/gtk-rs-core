@@ -43,7 +43,7 @@ pub trait FontFaceExt: 'static {
     fn is_synthesized(&self) -> bool;
 
     #[doc(alias = "pango_font_face_list_sizes")]
-    fn list_sizes(&self) -> Vec<i32>;
+    fn list_sizes(&self) -> Option<Vec<i32>>;
 }
 
 impl<O: IsA<FontFace>> FontFaceExt for O {
@@ -81,7 +81,7 @@ impl<O: IsA<FontFace>> FontFaceExt for O {
         }
     }
 
-    fn list_sizes(&self) -> Vec<i32> {
+    fn list_sizes(&self) -> Option<Vec<i32>> {
         unsafe {
             let mut sizes = ptr::null_mut();
             let mut n_sizes = mem::MaybeUninit::uninit();
